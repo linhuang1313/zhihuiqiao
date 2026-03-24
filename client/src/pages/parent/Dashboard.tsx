@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ClipboardList, BookOpen, Star, Plus, ArrowRight } from "lucide-react";
+import { ClipboardList, BookOpen, Star, Plus, ArrowRight, Unlock, CreditCard } from "lucide-react";
 import type { Demand, Order } from "@shared/schema";
 
 const demandStatusMap: Record<string, { label: string; color: string }> = {
@@ -22,6 +22,13 @@ const orderStatusMap: Record<string, { label: string; color: string }> = {
   cancelled: { label: "已取消", color: "destructive" },
 };
 
+interface UnlockStatus {
+  hasActivePackage: boolean;
+  remainingUnlocks: number | null;
+  expiresAt: string | null;
+  totalUnlocked: number;
+}
+
 export default function ParentDashboard() {
   const { user } = useAuth();
   const { data: demands, isLoading: demandsLoading } = useQuery<Demand[]>({
@@ -29,6 +36,9 @@ export default function ParentDashboard() {
   });
   const { data: orders, isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders/my"],
+  });
+  const { data: unlockStatus, isLoading: unlockLoading } = useQuery<UnlockStatus>({
+    queryKey: ["/api/unlock/status"],
   });
 
   const openDemands = demands?.filter((d) => d.status === "open") || [];
@@ -43,7 +53,7 @@ export default function ParentDashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           {
             label: "招募中需求",
@@ -68,6 +78,18 @@ export default function ParentDashboard() {
             value: demandsLoading ? "-" : (demands?.length || 0),
             icon: <ClipboardList className="text-muted-foreground" size={20} />,
             bg: "bg-muted/40",
+          },
+          {
+            label: "已解锁老师",
+            value: unlockLoading ? "-" : (unlockStatus?.totalUnlocked || 0),
+            icon: <Unlock className="text-violet-500" size={20} />,
+            bg: "bg-violet-50 dark:bg-violet-900/20",
+          },
+          {
+            label: "剩余解锁额度",
+            value: unlockLoading ? "-" : (unlockStatus?.hasActivePackage ? (unlockStatus.remainingUnlocks === null ? "无限" : unlockStatus.remainingUnlocks) : 0),
+            icon: <CreditCard className="text-blue-500" size={20} />,
+            bg: "bg-blue-50 dark:bg-blue-900/20",
           },
         ].map((stat, i) => (
           <Card key={i} className="border-card-border">
@@ -98,6 +120,12 @@ export default function ParentDashboard() {
           </Link>
           <Link href="/parent/teachers">
             <Button variant="outline" data-testid="btn-browse-teachers">浏览老师</Button>
+          </Link>
+          <Link href="/parent/packages">
+            <Button variant="outline" data-testid="btn-buy-package" className="gap-1">
+              <CreditCard size={14} />
+              购买套餐
+            </Button>
           </Link>
           <Link href="/parent/orders">
             <Button variant="outline" data-testid="btn-view-orders">查看订单</Button>

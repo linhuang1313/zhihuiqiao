@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Star, BookOpen, DollarSign, Search, ArrowRight } from "lucide-react";
+import { Star, BookOpen, DollarSign, Search, ArrowRight, Target, Bell } from "lucide-react";
 import type { Order } from "@shared/schema";
 
 const orderStatusMap: Record<string, { label: string; color: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -15,6 +15,17 @@ const orderStatusMap: Record<string, { label: string; color: "default" | "second
   cancelled: { label: "已取消", color: "destructive" },
 };
 
+interface NotificationItem {
+  id: number;
+  type: string;
+  title: string;
+  content: string;
+  relatedId: number | null;
+  matchScore: number | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
 export default function TeacherDashboard() {
   const { user } = useAuth();
   const { data: orders, isLoading: ordersLoading } = useQuery<Order[]>({
@@ -23,10 +34,15 @@ export default function TeacherDashboard() {
   const { data: profile } = useQuery<any>({
     queryKey: ["/api/teacher/profile"],
   });
+  const { data: notifications, isLoading: notifsLoading } = useQuery<NotificationItem[]>({
+    queryKey: ["/api/notifications"],
+  });
 
   const activeOrders = orders?.filter((o) => o.serviceStatus === "scheduled" || o.serviceStatus === "in_progress") || [];
   const completedOrders = orders?.filter((o) => o.serviceStatus === "completed") || [];
   const totalIncome = completedOrders.reduce((sum, o) => sum + (o.teacherIncome || 0), 0);
+
+  const unreadMatchNotifs = notifications?.filter(n => n.type === "match_demand" && !n.isRead) || [];
 
   return (
     <div className="space-y-6">
@@ -37,7 +53,7 @@ export default function TeacherDashboard() {
 
       {!profile?.verified && (
         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm">
-          <span className="font-medium text-amber-700 dark:text-amber-400">⚠️ 您的资料尚未通过认证</span>
+          <span className="font-medium text-amber-700 dark:text-amber-400">您的资料尚未通过认证</span>
           <span className="text-amber-600 dark:text-amber-500 ml-2">请完善个人资料，等待管理员审核</span>
           <Link href="/teacher/profile">
             <Button size="sm" variant="outline" className="ml-3 text-xs h-7">完善资料</Button>
@@ -86,6 +102,63 @@ export default function TeacherDashboard() {
           </Card>
         ))}
       </div>
+
+      {/* Match Notifications */}
+      <Card className="border-card-border">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Target size={16} className="text-primary" />
+            最新匹配推送
+            {unreadMatchNotifs.length > 0 && (
+              <Badge variant="destructive" className="text-xs">{unreadMatchNotifs.length}</Badge>
+            )}
+          </CardTitle>
+          <Link href="/teacher/notifications">
+            <a className="text-sm text-primary hover:underline flex items-center gap-1" data-testid="link-all-notifications">
+              查看全部通知 <ArrowRight size={14} />
+            </a>
+          </Link>
+        </CardHeader>
+        <CardContent>
+          {notifsLoading ? (
+            <div className="space-y-3">
+              {[1, 2].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : unreadMatchNotifs.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground">
+              <Bell size={28} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">暂无新的匹配需求</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {unreadMatchNotifs.slice(0, 3).map((notif) => (
+                <div
+                  key={notif.id}
+                  className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg"
+                  data-testid={`match-notif-${notif.id}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{notif.title}</span>
+                      {notif.matchScore && (
+                        <Badge variant="secondary" className="text-xs">
+                          匹配度 {notif.matchScore}%
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{notif.content}</p>
+                  </div>
+                  <Link href="/teacher/demands">
+                    <Button size="sm" variant="outline" className="shrink-0 ml-2" data-testid={`btn-view-match-${notif.id}`}>
+                      查看详情
+                    </Button>
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Quick Actions */}
       <Card className="border-card-border">

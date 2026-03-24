@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,10 @@ import {
   ShieldCheck,
   DollarSign,
   Search,
+  Lock,
+  Unlock,
+  CreditCard,
+  Bell,
 } from "lucide-react";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { useToast } from "@/hooks/use-toast";
@@ -42,6 +47,8 @@ const parentNav: NavItem[] = [
   { href: "/parent/post-demand", label: "发布需求", icon: <ClipboardList size={18} /> },
   { href: "/parent/demands", label: "我的需求", icon: <BookOpen size={18} /> },
   { href: "/parent/teachers", label: "浏览老师", icon: <Search size={18} /> },
+  { href: "/parent/packages", label: "解锁套餐", icon: <CreditCard size={18} /> },
+  { href: "/parent/unlocks", label: "解锁记录", icon: <Unlock size={18} /> },
   { href: "/parent/orders", label: "我的订单", icon: <Star size={18} /> },
 ];
 
@@ -49,6 +56,7 @@ const teacherNav: NavItem[] = [
   { href: "/teacher", label: "总览", icon: <LayoutDashboard size={18} /> },
   { href: "/teacher/profile", label: "我的资料", icon: <Settings size={18} /> },
   { href: "/teacher/demands", label: "接单大厅", icon: <Search size={18} /> },
+  { href: "/teacher/notifications", label: "消息通知", icon: <Bell size={18} /> },
   { href: "/teacher/orders", label: "我的订单", icon: <BookOpen size={18} /> },
   { href: "/teacher/earnings", label: "收入统计", icon: <DollarSign size={18} /> },
 ];
@@ -58,6 +66,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/users", label: "用户管理", icon: <Users size={18} /> },
   { href: "/admin/verify", label: "教师认证", icon: <ShieldCheck size={18} /> },
   { href: "/admin/orders", label: "订单管理", icon: <BookOpen size={18} /> },
+  { href: "/admin/revenue", label: "收入管理", icon: <DollarSign size={18} /> },
   { href: "/admin/analytics", label: "数据分析", icon: <BarChart3 size={18} /> },
 ];
 
@@ -79,6 +88,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       : user?.role === "teacher"
       ? teacherNav
       : adminNav;
+
+  const showBell = user?.role === "teacher" || user?.role === "parent";
+  const { data: unreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/notifications/unread-count"],
+    refetchInterval: 30000,
+    enabled: !!showBell,
+  });
+  const unreadCount = unreadData?.count || 0;
+  const notifHref = user?.role === "teacher" ? "/teacher/notifications" : "/parent/notifications";
 
   const handleLogout = async () => {
     try {
@@ -213,6 +231,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
+          <div className="flex items-center gap-2">
+            {showBell && (
+              <Link href={notifHref}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative"
+                  data-testid="btn-notification-bell"
+                >
+                  <Bell size={20} />
+                  {unreadCount > 0 && (
+                    <span
+                      className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-xs font-bold px-1"
+                      data-testid="notification-badge"
+                    >
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                </Button>
+              </Link>
+            )}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -251,6 +291,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </header>
 
         {/* Page content */}

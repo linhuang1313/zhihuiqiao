@@ -27,6 +27,11 @@ import TeacherProfile from "@/pages/teacher/Profile";
 import TeacherDemands from "@/pages/teacher/Demands";
 import TeacherOrders from "@/pages/teacher/Orders";
 import TeacherEarnings from "@/pages/teacher/Earnings";
+import TeacherNotifications from "@/pages/teacher/Notifications";
+
+// Parent extra pages
+import ParentPackages from "@/pages/parent/Packages";
+import ParentUnlocks from "@/pages/parent/Unlocks";
 
 // Admin pages
 import AdminDashboard from "@/pages/admin/Dashboard";
@@ -34,6 +39,7 @@ import AdminUsers from "@/pages/admin/Users";
 import TeacherVerify from "@/pages/admin/Verify";
 import AdminOrders from "@/pages/admin/AdminOrders";
 import AdminAnalytics from "@/pages/admin/Analytics";
+import AdminRevenue from "@/pages/admin/Revenue";
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -80,6 +86,12 @@ function AppRouter() {
       <Route path="/parent/teachers/:id">
         {() => <ProtectedLayout><TeacherDetail /></ProtectedLayout>}
       </Route>
+      <Route path="/parent/packages">
+        {() => <ProtectedLayout><ParentPackages /></ProtectedLayout>}
+      </Route>
+      <Route path="/parent/unlocks">
+        {() => <ProtectedLayout><ParentUnlocks /></ProtectedLayout>}
+      </Route>
       <Route path="/parent/orders">
         {() => <ProtectedLayout><ParentOrders /></ProtectedLayout>}
       </Route>
@@ -93,6 +105,9 @@ function AppRouter() {
       </Route>
       <Route path="/teacher/demands">
         {() => <ProtectedLayout><TeacherDemands /></ProtectedLayout>}
+      </Route>
+      <Route path="/teacher/notifications">
+        {() => <ProtectedLayout><TeacherNotifications /></ProtectedLayout>}
       </Route>
       <Route path="/teacher/orders">
         {() => <ProtectedLayout><TeacherOrders /></ProtectedLayout>}
@@ -113,6 +128,9 @@ function AppRouter() {
       </Route>
       <Route path="/admin/orders">
         {() => <ProtectedLayout><AdminOrders /></ProtectedLayout>}
+      </Route>
+      <Route path="/admin/revenue">
+        {() => <ProtectedLayout><AdminRevenue /></ProtectedLayout>}
       </Route>
       <Route path="/admin/analytics">
         {() => <ProtectedLayout><AdminAnalytics /></ProtectedLayout>}

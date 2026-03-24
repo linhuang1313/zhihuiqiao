@@ -68,6 +68,50 @@ function calculateMatchScore(teacher: any, demand: any): number {
   return Math.min(100, score);
 }
 
+// Mask education to tier
+function maskEducation(education: string | null | undefined): string {
+  if (!education) return "本科院校";
+  const e = education.toLowerCase();
+  const top985 = ["清华", "北大", "复旦", "交大", "浙大", "中科大", "南大", "哈工大", "西交", "人大"];
+  if (top985.some(s => education.includes(s))) return "985院校";
+  const is211 = ["武大", "华科", "中山", "厦大", "同济", "东南", "北航", "北理", "天大", "南开", "川大", "电子科大"];
+  if (is211.some(s => education.includes(s))) return "211院校";
+  if (e.includes("985")) return "985院校";
+  if (e.includes("211")) return "211院校";
+  return "本科院校";
+}
+
+// Mask teacher info for non-unlocked view
+function maskTeacherInfo(teacher: any, isUnlocked: boolean) {
+  if (isUnlocked) return { ...teacher, isUnlocked: true };
+  const name = teacher.name && teacher.name.length > 0 ? teacher.name[0] + "**老师" : "**老师";
+  return {
+    id: teacher.id,
+    name,
+    city: teacher.city,
+    phone: null,
+    avatar: null,
+    profile: teacher.profile ? {
+      education: maskEducation(teacher.profile.education),
+      major: null,
+      degree: teacher.profile.degree,
+      skills: teacher.profile.skills,
+      serviceTypes: teacher.profile.serviceTypes,
+      hourlyRateMin: teacher.profile.hourlyRateMin,
+      hourlyRateMax: teacher.profile.hourlyRateMax,
+      ratingAvg: teacher.profile.ratingAvg,
+      totalOrders: teacher.profile.totalOrders,
+      verified: teacher.profile.verified,
+      bio: null,
+      serviceAreas: teacher.profile.serviceAreas,
+      availableTimes: teacher.profile.availableTimes,
+      certificates: teacher.profile.certificates,
+      demoVideos: teacher.profile.demoVideos,
+    } : null,
+    isUnlocked: false,
+  };
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.use(
     session({
@@ -168,6 +212,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         parentId: req.session.userId!,
         preferredTime: JSON.stringify(req.body.preferredTime || []),
       });
+
+      // Auto-match: notify top 5 verified teachers
+      try {
+        const teachers = await storage.getAllTeachers();
+        const scored = teachers
+          .filter(t => t.profile && t.profile.verified)
+          .map(t => ({ ...t, matchScore: calculateMatchScore(t, demand) }))
+          .sort((a, b) => b.matchScore - a.matchScore)
+          .slice(0, 5);
+
+        for (const teacher of scored) {
+          if (teacher.matchScore > 0) {
+            await storage.createNotification({
+              userId: teacher.id,
+              type: "match_demand",
+              title: `新需求匹配：${demand.serviceCategory}`,
+              content: `有家长在${demand.location || "未知地区"}寻找${demand.specificService || demand.serviceCategory}老师，孩子${demand.childAge}岁，预算¥${demand.budgetMin || 0}-${demand.budgetMax || "不限"}/小时，匹配度${teacher.matchScore}%`,
+              relatedId: demand.id,
+              relatedType: "demand",
+              matchScore: teacher.matchScore,
+              isRead: false,
+            });
+          }
+        }
+      } catch (matchErr) {
+        // Don't fail demand creation if matching fails
+        console.error("Auto-match notification error:", matchErr);
+      }
+
       return res.json(demand);
     } catch (err: any) {
       return res.status(500).json({ message: err.message });
@@ -214,11 +287,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // =========== TEACHERS ===========
+  // =========== TEACHERS (with masking for parents) ===========
   app.get("/api/teachers", async (req, res) => {
     try {
       const teachers = await storage.getAllTeachers();
-      return res.json(teachers);
+      const userId = req.session.userId;
+      const role = req.session.role;
+
+      // Admin sees full info
+      if (role === "admin") {
+        return res.json(teachers.map(t => {
+          const { password: _, ...safe } = t;
+          return { ...safe, isUnlocked: true };
+        }));
+      }
+
+      // Parent sees masked info unless unlocked
+      if (role === "parent" && userId) {
+        const results = await Promise.all(teachers.map(async (t) => {
+          const { password: _, ...safe } = t;
+          const unlocked = await storage.isTeacherUnlocked(userId, t.id);
+          return maskTeacherInfo(safe, unlocked);
+        }));
+        return res.json(results);
+      }
+
+      // Teacher viewing other teachers - also masked
+      if (role === "teacher" && userId) {
+        const results = teachers.map((t) => {
+          const { password: _, ...safe } = t;
+          // Teacher can see their own full profile
+          if (t.id === userId) return { ...safe, isUnlocked: true };
+          return maskTeacherInfo(safe, false);
+        });
+        return res.json(results);
+      }
+
+      // Not logged in - masked
+      return res.json(teachers.map(t => {
+        const { password: _, ...safe } = t;
+        return maskTeacherInfo(safe, false);
+      }));
     } catch (err: any) {
       return res.status(500).json({ message: err.message });
     }
@@ -273,11 +382,201 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/teachers/:id", async (req, res) => {
     try {
-      const user = await storage.getUser(parseInt(req.params.id));
-      if (!user || user.role !== "teacher") return res.status(404).json({ message: "老师不存在" });
-      const profile = await storage.getTeacherProfile(user.id);
-      const { password: _, ...safeUser } = user;
-      return res.json({ ...safeUser, profile: profile || null });
+      const teacherUser = await storage.getUser(parseInt(req.params.id));
+      if (!teacherUser || teacherUser.role !== "teacher") return res.status(404).json({ message: "老师不存在" });
+      const profile = await storage.getTeacherProfile(teacherUser.id);
+      const { password: _, ...safeUser } = teacherUser;
+      const fullTeacher = { ...safeUser, profile: profile || null };
+
+      const userId = req.session.userId;
+      const role = req.session.role;
+
+      // Admin or teacher themselves see full info
+      if (role === "admin" || (role === "teacher" && userId === teacherUser.id)) {
+        return res.json({ ...fullTeacher, isUnlocked: true });
+      }
+
+      // Parent - check unlock status
+      if (role === "parent" && userId) {
+        const unlocked = await storage.isTeacherUnlocked(userId, teacherUser.id);
+        return res.json(maskTeacherInfo(fullTeacher, unlocked));
+      }
+
+      // Not logged in or other roles - masked
+      return res.json(maskTeacherInfo(fullTeacher, false));
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // =========== PACKAGES ===========
+  app.get("/api/packages", async (_req, res) => {
+    try {
+      const packages = await storage.getActivePackages();
+      return res.json(packages);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // =========== PURCHASES ===========
+  app.post("/api/purchases", requireAuth, async (req, res) => {
+    try {
+      const { packageId } = req.body;
+      const pkg = await storage.getPackage(packageId);
+      if (!pkg || !pkg.isActive) return res.status(404).json({ message: "套餐不存在或已下架" });
+      const purchase = await storage.createPurchase({
+        userId: req.session.userId!,
+        packageId: pkg.id,
+        amount: pkg.price,
+        unlockQuota: null,
+        expiresAt: null,
+        status: "pending",
+        confirmedBy: null,
+      });
+      return res.json(purchase);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/purchases/my", requireAuth, async (req, res) => {
+    try {
+      const purchases = await storage.getPurchasesByUser(req.session.userId!);
+      return res.json(purchases);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // =========== UNLOCK ===========
+  app.get("/api/unlock/status", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const activePurchase = await storage.getActivePurchase(userId);
+      const totalUnlocked = await storage.getUnlockCount(userId);
+      return res.json({
+        hasActivePackage: !!activePurchase,
+        remainingUnlocks: activePurchase ? (activePurchase.unlockQuota ?? null) : 0,
+        expiresAt: activePurchase?.expiresAt ?? null,
+        totalUnlocked,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/unlock/:teacherId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const teacherId = parseInt(req.params.teacherId);
+      const teacherUser = await storage.getUser(teacherId);
+      if (!teacherUser || teacherUser.role !== "teacher") {
+        return res.status(404).json({ message: "老师不存在" });
+      }
+
+      // Already unlocked?
+      const alreadyUnlocked = await storage.isTeacherUnlocked(userId, teacherId);
+      if (alreadyUnlocked) {
+        const profile = await storage.getTeacherProfile(teacherId);
+        const { password: _, ...safeUser } = teacherUser;
+        return res.json({ ...safeUser, profile: profile || null, isUnlocked: true });
+      }
+
+      // Check active purchase
+      const activePurchase = await storage.getActivePurchase(userId);
+      if (!activePurchase) {
+        return res.status(402).json({ message: "没有有效套餐，请先购买" });
+      }
+
+      // Deduct quota if not unlimited
+      if (activePurchase.unlockQuota !== null) {
+        const newQuota = activePurchase.unlockQuota - 1;
+        // Use raw update to set new quota
+        const { db } = await import("./storage");
+        const { userPurchases } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        db.update(userPurchases).set({ unlockQuota: newQuota }).where(eq(userPurchases.id, activePurchase.id)).run();
+      }
+
+      // Create unlock record
+      await storage.createUnlockRecord({
+        parentId: userId,
+        teacherId,
+        purchaseId: activePurchase.id,
+      });
+
+      // Return full teacher info
+      const profile = await storage.getTeacherProfile(teacherId);
+      const { password: _, ...safeUser } = teacherUser;
+      return res.json({ ...safeUser, profile: profile || null, isUnlocked: true });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/unlock/records", requireAuth, async (req, res) => {
+    try {
+      const records = await storage.getUnlocksByParent(req.session.userId!);
+      // Enrich with teacher info
+      const enriched = await Promise.all(records.map(async (r) => {
+        const teacher = await storage.getUser(r.teacherId);
+        const profile = teacher ? await storage.getTeacherProfile(teacher.id) : null;
+        return {
+          ...r,
+          teacher: teacher ? {
+            id: teacher.id,
+            name: teacher.name,
+            city: teacher.city,
+            avatar: teacher.avatar,
+            profile: profile ? {
+              education: profile.education,
+              degree: profile.degree,
+              skills: profile.skills,
+              ratingAvg: profile.ratingAvg,
+            } : null,
+          } : null,
+        };
+      }));
+      return res.json(enriched);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // =========== NOTIFICATIONS ===========
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const notifs = await storage.getNotificationsByUser(req.session.userId!);
+      return res.json(notifs);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    try {
+      const count = await storage.getUnreadCount(req.session.userId!);
+      return res.json({ count });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      const notif = await storage.markAsRead(parseInt(req.params.id));
+      if (!notif) return res.status(404).json({ message: "通知不存在" });
+      return res.json(notif);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
+    try {
+      await storage.markAllAsRead(req.session.userId!);
+      return res.json({ message: "已全部标记为已读" });
     } catch (err: any) {
       return res.status(500).json({ message: err.message });
     }
@@ -423,6 +722,58 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/admin/stats", requireAdmin, async (req, res) => {
     const stats = await storage.getStats();
     return res.json(stats);
+  });
+
+  // Admin purchase management
+  app.get("/api/admin/purchases", requireAdmin, async (req, res) => {
+    try {
+      const purchases = await storage.getAllPurchases();
+      // Enrich with user + package info
+      const enriched = await Promise.all(purchases.map(async (p) => {
+        const user = await storage.getUser(p.userId);
+        const pkg = await storage.getPackage(p.packageId);
+        return { ...p, userName: user?.name, packageName: pkg?.name };
+      }));
+      return res.json(enriched);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/purchases/pending", requireAdmin, async (req, res) => {
+    try {
+      const purchases = await storage.getAllPendingPurchases();
+      const enriched = await Promise.all(purchases.map(async (p) => {
+        const user = await storage.getUser(p.userId);
+        const pkg = await storage.getPackage(p.packageId);
+        return { ...p, userName: user?.name, packageName: pkg?.name };
+      }));
+      return res.json(enriched);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/purchases/:id/confirm", requireAdmin, async (req, res) => {
+    try {
+      const purchase = await storage.confirmPurchase(parseInt(req.params.id), req.session.userId!);
+      if (!purchase) return res.status(404).json({ message: "购买记录不存在" });
+      return res.json(purchase);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/revenue", requireAdmin, async (req, res) => {
+    try {
+      const allPurchases = await storage.getAllPurchases();
+      const confirmed = allPurchases.filter(p => p.status === "confirmed");
+      const totalRevenue = confirmed.reduce((sum, p) => sum + p.amount, 0);
+      const pendingCount = allPurchases.filter(p => p.status === "pending").length;
+      return res.json({ totalRevenue, totalPurchases: allPurchases.length, confirmedCount: confirmed.length, pendingCount });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
   });
 
   // =========== MATCH ===========

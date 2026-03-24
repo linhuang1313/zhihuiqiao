@@ -136,3 +136,80 @@ export const insertMatchLogSchema = createInsertSchema(matchLogs).omit({
 });
 export type InsertMatchLog = z.infer<typeof insertMatchLogSchema>;
 export type MatchLog = typeof matchLogs.$inferSelect;
+
+// Unlock Packages table
+export const unlockPackages = sqliteTable("unlock_packages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  description: text("description"),
+  price: real("price").notNull(),
+  unlockCount: integer("unlock_count"), // null = unlimited
+  durationDays: integer("duration_days"), // null = permanent
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export const insertUnlockPackageSchema = createInsertSchema(unlockPackages).omit({
+  id: true,
+});
+export type InsertUnlockPackage = z.infer<typeof insertUnlockPackageSchema>;
+export type UnlockPackage = typeof unlockPackages.$inferSelect;
+
+// User Purchases table
+export const userPurchases = sqliteTable("user_purchases", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  packageId: integer("package_id").notNull().references(() => unlockPackages.id),
+  amount: real("amount").notNull(),
+  unlockQuota: integer("unlock_quota"), // null = unlimited
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+  status: text("status").notNull().default("pending"), // pending/confirmed/expired/refunded
+  confirmedBy: integer("confirmed_by"),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
+});
+
+export const insertUserPurchaseSchema = createInsertSchema(userPurchases).omit({
+  id: true,
+  createdAt: true,
+  confirmedAt: true,
+});
+export type InsertUserPurchase = z.infer<typeof insertUserPurchaseSchema>;
+export type UserPurchase = typeof userPurchases.$inferSelect;
+
+// Unlock Records table
+export const unlockRecords = sqliteTable("unlock_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  parentId: integer("parent_id").notNull().references(() => users.id),
+  teacherId: integer("teacher_id").notNull().references(() => users.id),
+  purchaseId: integer("purchase_id").notNull().references(() => userPurchases.id),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const insertUnlockRecordSchema = createInsertSchema(unlockRecords).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertUnlockRecord = z.infer<typeof insertUnlockRecordSchema>;
+export type UnlockRecord = typeof unlockRecords.$inferSelect;
+
+// Notifications table
+export const notifications = sqliteTable("notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  type: text("type").notNull(), // match_demand / system / order_update
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  relatedId: integer("related_id"),
+  relatedType: text("related_type"), // demand / order
+  matchScore: integer("match_score"),
+  isRead: integer("is_read", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;

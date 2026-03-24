@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, BookOpen, DollarSign, TrendingUp, ClipboardList, ShieldCheck } from "lucide-react";
+import { Users, BookOpen, DollarSign, TrendingUp, ClipboardList, ShieldCheck, Unlock, Clock } from "lucide-react";
 
 export default function AdminDashboard() {
   const { data: stats, isLoading } = useQuery<any>({
@@ -16,6 +16,9 @@ export default function AdminDashboard() {
     { label: "完成订单", value: stats?.completedOrders || 0, icon: <TrendingUp className="text-emerald-500" size={20} />, bg: "bg-emerald-50 dark:bg-emerald-900/20" },
     { label: "总需求数", value: stats?.totalDemands || 0, icon: <ClipboardList className="text-violet-500" size={20} />, bg: "bg-violet-50 dark:bg-violet-900/20" },
     { label: "平台GMV", value: `¥${stats?.gmv || 0}`, icon: <DollarSign className="text-rose-500" size={20} />, bg: "bg-rose-50 dark:bg-rose-900/20" },
+    { label: "套餐收入", value: `¥${stats?.totalRevenue?.toFixed(1) || 0}`, icon: <DollarSign className="text-green-500" size={20} />, bg: "bg-green-50 dark:bg-green-900/20" },
+    { label: "总解锁次数", value: stats?.totalUnlocks || 0, icon: <Unlock className="text-indigo-500" size={20} />, bg: "bg-indigo-50 dark:bg-indigo-900/20" },
+    { label: "待确认订单", value: stats?.pendingPurchases || 0, icon: <Clock className="text-orange-500" size={20} />, bg: "bg-orange-50 dark:bg-orange-900/20" },
   ];
 
   return (
@@ -27,7 +30,7 @@ export default function AdminDashboard() {
 
       {isLoading ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[1,2,3,4,5,6,7].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+          {[1,2,3,4,5,6,7,8,9,10].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -50,6 +53,7 @@ export default function AdminDashboard() {
             <p>• 前往 <a href="/#/admin/verify" className="text-primary hover:underline">教师认证</a> 审核待认证老师</p>
             <p>• 前往 <a href="/#/admin/users" className="text-primary hover:underline">用户管理</a> 管理用户状态</p>
             <p>• 前往 <a href="/#/admin/orders" className="text-primary hover:underline">订单管理</a> 查看所有订单</p>
+            <p>• 前往 <a href="/#/admin/revenue" className="text-primary hover:underline">收入管理</a> 确认购买订单</p>
             <p>• 前往 <a href="/#/admin/analytics" className="text-primary hover:underline">数据分析</a> 查看详细报表</p>
           </CardContent>
         </Card>
